@@ -1,3 +1,4 @@
+
 name: Update IPSpeed VLESS Subscription
 
 on:
@@ -12,48 +13,61 @@ jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Fetch and build subscription
         run: |
           python - <<'PY'
-          import re
-          import html
-          import base64
-          import urllib.request
+          import re, html, base64, urllib.request
           from pathlib import Path
 
-          url = "https://ipspeed.info/free-vless-reality.php"
-          req = urllib.request.Request(
-              url,
-              headers={"User-Agent": "Mozilla/5.0"}
-          )
-          with urllib.request.urlopen(req, timeout=45) as response:
-              page = response.read().decode("utf-8", errors="replace")
+          urls = [
+              "https://r.jina.ai/https://ipspeed.info/free-vless-reality.php",
+              "https://ipspeed.info/free-vless-reality.php"
+          ]
+
+          page = ""
+          errors = []
+
+          for url in urls:
+              try:
+                  req = urllib.request.Request(url, headers={
+                      "User-Agent": "Mozilla/5.0",
+                      "Accept": "text/plain,text/html,*/*"
+                  })
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      page = r.read().decode("utf-8", errors="replace")
+                  if page:
+                      break
+              except Exception as e:
+                  errors.append(str(e))
+
+          if not page:
+              raise SystemExit("All sources failed: " + " | ".join(errors))
 
           page = html.unescape(page)
-          links = re.findall(r'vless://[^\s"\'<>]+', page)
+          links = re.findall(r'vless://[^\s"\'<>`]+', page)
+
           cleaned = []
           for link in links:
               link = link.rstrip(");,]")
-              if link not in cleaned and "@" in link and "#" in link:
+              if "@" in link and link not in cleaned:
                   cleaned.append(link)
 
           if not cleaned:
-              raise SystemExit("No valid VLESS links found; refusing to publish empty subscription.")
+              raise SystemExit("No VLESS links found.")
 
           Path("public").mkdir(exist_ok=True)
           raw = "\n".join(cleaned) + "\n"
           Path("public/configs.txt").write_text(raw, encoding="utf-8")
-          encoded = base64.b64encode(raw.encode("utf-8")).decode("ascii")
+          encoded = base64.b64encode(raw.encode()).decode()
           Path("public/subscription.txt").write_text(encoded, encoding="utf-8")
-          print(f"Published {len(cleaned)} unique VLESS links.")
+          print(f"SUCCESS: {len(cleaned)} unique VLESS links.")
+
           PY
 
       - name: Commit updated subscription
@@ -65,5 +79,5 @@ jobs:
             git commit -m "Update VLESS subscription"
             git push
           else
-            echo "No changes to publish."
+            echo "No changes."
           fi
