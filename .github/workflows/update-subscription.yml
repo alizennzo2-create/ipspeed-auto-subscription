@@ -1,0 +1,69 @@
+name: Update IPSpeed VLESS Subscription
+
+on:
+  schedule:
+    - cron: "17 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch and build subscription
+        run: |
+          python - <<'PY'
+          import re
+          import html
+          import base64
+          import urllib.request
+          from pathlib import Path
+
+          url = "https://ipspeed.info/free-vless-reality.php"
+          req = urllib.request.Request(
+              url,
+              headers={"User-Agent": "Mozilla/5.0"}
+          )
+          with urllib.request.urlopen(req, timeout=45) as response:
+              page = response.read().decode("utf-8", errors="replace")
+
+          page = html.unescape(page)
+          links = re.findall(r'vless://[^\s"\'<>]+', page)
+          cleaned = []
+          for link in links:
+              link = link.rstrip(");,]")
+              if link not in cleaned and "@" in link and "#" in link:
+                  cleaned.append(link)
+
+          if not cleaned:
+              raise SystemExit("No valid VLESS links found; refusing to publish empty subscription.")
+
+          Path("public").mkdir(exist_ok=True)
+          raw = "\n".join(cleaned) + "\n"
+          Path("public/configs.txt").write_text(raw, encoding="utf-8")
+          encoded = base64.b64encode(raw.encode("utf-8")).decode("ascii")
+          Path("public/subscription.txt").write_text(encoded, encoding="utf-8")
+          print(f"Published {len(cleaned)} unique VLESS links.")
+          PY
+
+      - name: Commit updated subscription
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/configs.txt public/subscription.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "Update VLESS subscription"
+            git push
+          else
+            echo "No changes to publish."
+          fi
